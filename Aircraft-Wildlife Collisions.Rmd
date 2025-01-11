@@ -1,0 +1,310 @@
+---
+title: "Aircraft-Wildlife Collisions"
+author: "Tushig Erdenebulgan"
+date: "Dec 16, 2024"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+fontsize: 11pt
+---
+
+# Aircraft-Wildlife Collisions
+
+A collection of all collisions between aircraft in wildlife that were reported to the US Federal Aviation Administration between 1990 and 1997, with details on the circumstances of the collision.
+
+## Variables
+
+* opid - Three letter identification code for the operator (carrier) of the aircraft
+* operator - Name of the aircraft operator
+* atype - Make and model of aircraft
+* remarks - Verbal remarks regarding the collision
+* phase_of_flt - Phase of the flight during which the collision occurred: 
+    * Approach
+    * Climb
+    * Descent
+    * En Route
+    * Landing Roll
+    * Parked
+    * Take-off run
+    * Taxi
+* ac_mass - Mass of the aircraft classified as 
+    * 2250 kg or less (1)
+    * 2251-5700 kg (2)
+    * 5701-27000 kg (3)
+    * 27001-272000 kg (4)
+    * above 272000 kg (5)
+* num_engs - Number of engines on the aircraft.
+* date - Date of the collision (MM/DD/YYYY).
+* time_of_day - Light conditions: 
+    * Dawn
+    * Day
+    * Dusk
+    * Night
+* state - Two letter abbreviation of the US state in which the collision occurred.
+* height - Feet above ground level
+* speed - Knots (indicated air speed).
+* effect - Effect on flight:
+    * Aborted Take-off
+    * Engine Shut Down
+    * None, Other
+    * Precautionary Landing.
+* sky - Type of cloud cover, if any: 
+    * No Cloud
+    * Overcast
+    * Some Cloud
+* species - Common name for bird or other wildlife
+* birds_seen - Number of birds/wildlife seen by pilot
+    * 1
+    * 2-10
+    * 11-100
+    * Over 100
+birds_struck - Number of birds/wildlife struck
+    * 0
+    * 1
+    * 2-10
+    * 11-100
+    * Over 100.
+    
+## Analysis 1, Binomial Proportion
+
+We will estimate the proportion of bird strike incidents where damage was reported.
+
+```{r}
+load("birds.rda")
+negation_patterns <- c("NO DAMAGE", "NOT DAMAGE", "FOUND NO DAMAGE", "ASSUME 1")
+negation_regex <- paste(negation_patterns, collapse = "|")
+
+birds$damage_flag <- ifelse(
+  grepl("DAMAGE", birds$remarks, ignore.case = TRUE) & 
+  !grepl(negation_regex, birds$remarks, ignore.case = TRUE),1,0)
+n_total <- nrow(birds)
+n_damage <- sum(birds$damage_flag)
+n_damage
+```
+Total incidents: 19302 
+Incidents with damage: 3302
+
+
+### Boxplot of Damage Proportion
+
+```{r}
+barplot(table(birds$damage_flag), 
+        main = "Proportion of Flights with Damage", 
+        col = "lightblue", 
+        ylab = "Count", xlab = "Flight Status")
+```
+```{r}
+p_hat <- n_damage/n_total
+```
+We estimated the proportion of bird strike incidents where damage was reported. Out of `r n_total` reported incidents, `r n_damage` incidents resulted in damage. This yields a sample proportion of `r round(p_hat, 3)`.
+
+### Bayesian Analysis: Uniform prior (Beta(1, 1))
+```{r}
+library(Bolstad)
+uniform_prior <- binobp(n_damage, n_total, 1, 1)
+```
+### Bayesian Analysis: Beta(3, 3) prior
+```{r}
+beta_prior <- binobp(n_damage, n_total, 3, 3)
+```
+
+Using a uniform prior, the estimated proportion of incidents with damage is 0.1711044 . The probability is 95% that the true proportion lies between 0.1658244 and 0.1764490
+
+With a Beta(3,3) prior, the estimated proportion is 0.1711726 with a 95% credible interval of 0.1658922, 0.1765174
+
+### Frequentist Confidence Interval
+```{r}
+# Frequentist Confidence Interval (Agresti-Coull)
+z <- qnorm(0.975)
+se <- sqrt(p_hat * (1-p_hat)/n_total)
+lower_bound <- p_hat-z*se
+upper_bound <- p_hat+z*se
+cat("Using a frequentist approach, the 95% confidence interval for the proportion is", lower_bound, "-", upper_bound)
+```
+Using a frequentist approach, the 95% confidence interval for the proportion is ( 0.1657579, 0.1763828).
+
+## Analysis #2, Estimate a mean
+
+```{r}
+
+valid_altitudes <- birds$height[!is.na(birds$height)]
+mean_altitude <- mean(valid_altitudes)
+sd_altitude <- sd(valid_altitudes)
+n_altitudes <- length(valid_altitudes)
+cat("The mean altitude of bird strikes is", mean_altitude, "feet, with a standard deviation of", sd_altitude)
+```
+```{r}
+hist(valid_altitudes, 
+     main = "Histogram of Bird Strike Altitudes", 
+     xlab = "Altitude (ft)", col = "lightgreen", border = "black")
+```
+
+We analyzed the altitude of bird strikes. The mean altitude of bird strikes is `r round(mean_altitude, 2)` feet, with a standard deviation of `r round(sd_altitude, 2)` feet. 
+
+
+### Bayesian inference
+
+Next, we'll estimate the population mean altitude of bird strikes using a Bayesian approach with a Normal prior distribution. We assume a prior mean mu of 2000 ft and a prior standard deviation sigma of 5000 ft, reflecting broad uncertainty about the mean altitude.
+```{r}
+prior_mu <- 2000
+prior_sigma <- 5000
+posterior_mean <- ((prior_mu/prior_sigma^2)+(mean_altitude*n_altitudes/sd_altitude^2)) /
+                  ((1/prior_sigma^2)+(n_altitudes/sd_altitude^2))
+posterior_variance <- 1/((1/prior_sigma^2)+(n_altitudes/sd_altitude^2))
+posterior_sd <- sqrt(posterior_variance)
+cat("Using a Bayesian approach with a normal prior, the posterior mean altitude is", posterior_mean, 
+    "feet with a 95% credible interval between", posterior_mean-1.96*posterior_sd, 
+    "and", posterior_mean+1.96*posterior_sd)
+```
+
+Using a Bayesian approach with a normal prior, the posterior mean altitude is 754.6878 feet with a 95% credible interval between 726.9559 and 782.4197
+
+
+### Frequentist inference
+
+```{r}
+se <- sd_altitude / sqrt(n_altitudes)
+z <- qnorm(0.975)
+ci_lower <- mean_altitude-z*se
+ci_upper <- mean_altitude+z*se
+cat("Using a frequentist approach, the 95% confidence interval for the mean altitude is", ci_lower, "-", ci_upper, "feet")
+
+```
+
+## Analysis #3, Compare Two Means
+We will compare the altitude of bird strikes during the Climb phase versus the Approach phase of flight.
+```{r}
+alt_climb <- birds$height[birds$phase_of_flt == "Climb" & !is.na(birds$height)]
+alt_approach <- birds$height[birds$phase_of_flt == "Approach" & !is.na(birds$height)]
+
+mean_climb <- mean(alt_climb, na.rm = TRUE) 
+mean_approach <- mean(alt_approach, na.rm = TRUE)
+
+cat("The mean altitude for Climb phase is", mean_climb, "feet, while for Approach phase it is", mean_approach, "feet.")
+
+```
+We compared the altitudes of bird strikes during the **Climb** and **Approach** phases of flight. The mean altitude for the Climb phase is 1099.403 feet, while for the Approach phase it is 882.7173 feet.
+
+```{r}
+# Frequentist t-test
+t_test <- t.test(alt_climb, alt_approach)
+cat("The frequentist t-test shows a p-value of", t_test$p.value, 
+    ", indicating whether the difference in means is statistically significant.")
+```
+A frequentist t-test yielded a p-value of 3.026049e-07, indicating whether the difference in mean altitudes is statistically significant.
+
+```{r}
+boxplot(alt_climb, alt_approach, names = c("Climb", "Approach"),
+        main = "Altitude by Phase of Flight", ylab = "Altitude (ft)")
+```
+## Analysis 4: Regression for Speed vs. Altitude
+We will fit a regression model to predict aircraft speed based on the altitude of bird strikes.
+
+```{r}
+valid_data <- birds[!is.na(birds$height) & !is.na(birds$speed), ]
+model <- lm(speed ~ height, data = valid_data)
+model_summary <- summary(model)
+slope <- model_summary$coefficients["height", "Estimate"]  
+se_slope <- model_summary$coefficients["height", "Std. Error"]
+t_crit <- qt(0.975, df = model_summary$df[2])  
+
+ci_lower <- slope-t_crit*se_slope
+ci_upper <- slope+t_crit*se_slope
+
+
+cat("The regression slope is", slope, 
+    "with a 95% confidence interval between", ci_lower, "and", ci_upper)
+```
+We fit a regression model to predict aircraft speed based on the altitude of bird strikes. The slope of the regression line is 0.0162887, indicating the rate at which speed changes with altitude. The 95% confidence interval for the slope is (0.01597746 and 0.01659993).
+
+```{r}
+if (nrow(valid_data) > 0) {
+  # Plot the data points
+  plot(valid_data$height, valid_data$speed, 
+       main = "Speed vs Altitude", 
+       xlab = "Altitude (ft)", 
+       ylab = "Speed (knots)", 
+       col = "blue")
+
+  intercept <- summary(model)$coefficients[1, "Estimate"]
+  slope <- summary(model)$coefficients[2, "Estimate"]
+  abline(a = intercept, b = slope, col = "red", lwd = 2)
+} else {
+  cat("No valid data available for plotting")
+}
+```
+
+## Analysis 5: Regression by Time of Day
+We will fit separate regression models to compare the relationship between speed and altitude for bird strikes that occurred during the day versus at night.
+```{r}
+day_data <- birds[birds$time_of_day == "Day" & !is.na(birds$height) & !is.na(birds$speed), ]
+night_data <- birds[birds$time_of_day == "Night" & !is.na(birds$height) & !is.na(birds$speed), ]
+
+model_day <- lm(speed ~ height, data = day_data)
+model_night <- lm(speed ~ height, data = night_data)
+
+cat("The slope for Daytime regression is", coef(model_day)[2], 
+    "with a 95% CI of", confint(model_day)[2, 1], "-", confint(model_day)[2, 2])
+cat("The slope for Nighttime regression is", coef(model_night)[2], 
+    "with a 95% CI of", confint(model_night)[2, 1], "-", confint(model_night)[2, 2])
+```
+We fit separate regression models for bird strikes during the day and night to compare the relationship between speed and altitude. The regression slope for daytime strikes is 0.01522018 with higher speed at lower altitudes(95% CI of 0.01475369 - 0.01568667). For nighttime strikes, the slope is 0.01579272. The nighttime regression indicates higher speeds at a given altitude, as reflected in the intercept (95% CI of 0.01527198 - 0.01631345).
+
+
+The following plots visualize the regression results:
+
+- **Daytime Regression**:
+    - Orange points represent the data, and the red line shows the regression relationship.
+
+
+```{r}
+if (nrow(day_data) > 0) {
+  # Plot the data points for Day
+  plot(day_data$height, day_data$speed, 
+       main = "Daytime Regression", 
+       xlab = "Altitude (ft)", 
+       ylab = "Speed (knots)", 
+       col = "orange", 
+       pch = 19)
+  
+  # Extract intercept and slope for Day
+  intercept_day <- summary(model_day)$coefficients[1, "Estimate"]
+  slope_day <- summary(model_day)$coefficients[2, "Estimate"]
+  
+  # Add regression line for Day
+  abline(a = intercept_day, b = slope_day, col = "red", lwd = 2)
+} else {
+  cat("No valid data available for daytime plotting.")
+}
+```
+- **Nighttime Regression**:
+    - Purple points represent the data, and the green line shows the regression relationship.
+
+```{r}
+if (nrow(night_data) > 0) {
+  # Plot the data points for Night
+  plot(night_data$height, night_data$speed, 
+       main = "Nighttime Regression", 
+       xlab = "Altitude (ft)", 
+       ylab = "Speed (knots)", 
+       col = "purple", 
+       pch = 19)
+  
+  # Extract intercept and slope for Night
+  intercept_night <- summary(model_night)$coefficients[1, "Estimate"]
+  slope_night <- summary(model_night)$coefficients[2, "Estimate"]
+  
+  # Add regression line for Night
+  abline(a = intercept_night, b = slope_night, col = "darkgreen", lwd = 2)
+} else {
+  cat("No valid data available for nighttime plotting.")
+}
+
+```
+The relationship between altitude and speed is slightly stronger during nighttime bird strikes, as indicated by a higher R-squared value. Additionally, speeds at any given altitude tend to be higher at night compared to the day, as seen from the higher intercept.
+
+## Footnote 
+
+This report analyzes FAA wildlife strike data from 1990 to 1997 using complete cases with non-missing values for key variables like altitude, speed, and flight phase. Both Bayesian and frequentist methods are applied to provide reliable estimates and intervals. The results should be interpreted carefully, as the data is observational and cannot show cause-and-effect relationships.
